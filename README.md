@@ -1,6 +1,6 @@
-# jqueue
+# supaqueue
 
-`jqueue` is a lightweight, type-safe in-memory background job queue for Node.js with zero dependencies. Use it when
+`supaqueue` is a lightweight, type-safe in-memory background job queue for Node.js with zero dependencies. Use it when
 you need background **jobs, retries, concurrency, delayed work, or scheduled
 tasks** without setting up Redis, Postgres, or external queue infrastructure.
 
@@ -21,17 +21,17 @@ such as BullMQ, pg-boss, or a hosted worker system.
 ## Install
 
 ```sh
-pnpm add jqueue
+pnpm add supaqueue
 ```
 
 ```sh
-npm install jqueue
+npm install supaqueue
 ```
 
 ## Quick Start
 
 ```ts
-import { createQueue } from "jqueue";
+import { createQueue } from "supaqueue";
 
 const emailQueue = createQueue<{ to: string; subject: string }>(
   async (job) => {
@@ -87,7 +87,7 @@ queue.addJob(
 ### Retries
 
 ```ts
-import { JobRetryStrategy } from "jqueue";
+import { JobRetryStrategy } from "supaqueue";
 
 queue.addJob(
   "sync-account",
@@ -216,7 +216,7 @@ queue.removeJobScheduler("daily-report");
 
 ## TypeScript
 
-`jqueue` is written in TypeScript and lets you type both job data and processor
+`supaqueue` is written in TypeScript and lets you type both job data and processor
 results:
 
 ```ts
