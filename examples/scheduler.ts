@@ -1,7 +1,7 @@
 import { createQueue } from "../src/queue";
 
 const someQueue = createQueue<{ message: string }>(
-  async (job) => {
+  (job) => {
     console.log(`Processing job ${job.name} with data:`, job.data.message);
   },
   {

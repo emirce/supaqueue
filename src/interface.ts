@@ -94,4 +94,4 @@ export interface Queue<TData = unknown, TResult = unknown>
 
 export type Processor<TData = unknown, TResult = unknown> = (
   job: Job<TData>,
-) => Promise<TResult>;
+) => Promise<TResult> | TResult;
