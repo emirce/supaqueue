@@ -30,8 +30,9 @@
     "worker",
     "scheduler"
   ],
+  "readme": "README.md",
+  "license": "MIT",
   "author": "",
-  "license": "ISC",
   "packageManager": "pnpm@11.7.0",
   "type": "module",
   "devDependencies": {
