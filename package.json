@@ -1,5 +1,5 @@
 {
-  "name": "jqueue",
+  "name": "supaqueue",
   "version": "0.1.0",
   "description": "",
   "main": "dist/index.js",
@@ -30,7 +30,7 @@
     "worker",
     "scheduler"
   ],
-  "repository": "https://github.com/emirce/jqueue",
+  "repository": "https://github.com/emirce/supaqueue",
   "readme": "README.md",
   "license": "MIT",
   "author": "",
