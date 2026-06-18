@@ -30,6 +30,7 @@
     "worker",
     "scheduler"
   ],
+  "repository": "https://github.com/emirce/jqueue",
   "readme": "README.md",
   "license": "MIT",
   "author": "",
