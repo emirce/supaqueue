@@ -1,6 +1,6 @@
 # jqueue
 
-`jqueue` is a lightweight, type-safe in-memory background job queue for Node.js. Use it when
+`jqueue` is a lightweight, type-safe in-memory background job queue for Node.js with zero dependencies. Use it when
 you need background **jobs, retries, concurrency, delayed work, or scheduled
 tasks** without setting up Redis, Postgres, or external queue infrastructure.
 
