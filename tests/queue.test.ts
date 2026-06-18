@@ -432,4 +432,146 @@ describe("Queue", () => {
       }),
     ]);
   });
+
+  it("should enqueue jobs from an interval scheduler", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const processor = vi.fn(async () => "done");
+      const queue = createQueue<{ name: string }>(processor);
+
+      const scheduler = queue.upsertJobScheduler("every-second", {
+        name: "greet",
+        data: { name: "Alice" },
+        repeat: { strategy: "interval", interval: 1000 },
+      });
+
+      expect(queue.getJobScheduler("every-second")).toEqual(scheduler);
+      expect(queue.getJobSchedulers()).toEqual([scheduler]);
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(processor).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(processor).toHaveBeenCalledTimes(1);
+      expect(processor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "greet",
+          data: { name: "Alice" },
+        }),
+      );
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(processor).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("should replace an existing job scheduler when upserted", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const processor = vi.fn(async () => "done");
+      const queue = createQueue<{ name: string }>(processor);
+
+      queue.upsertJobScheduler("replace-me", {
+        name: "old",
+        data: { name: "Alice" },
+        repeat: { strategy: "interval", interval: 1000 },
+      });
+      queue.upsertJobScheduler("replace-me", {
+        name: "new",
+        data: { name: "Bob" },
+        repeat: { strategy: "interval", interval: 5000 },
+      });
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(processor).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(processor).toHaveBeenCalledTimes(1);
+      expect(processor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "new",
+          data: { name: "Bob" },
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("should stop enqueueing jobs after scheduler removal", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const processor = vi.fn(async () => "done");
+      const queue = createQueue<{ name: string }>(processor);
+
+      queue.upsertJobScheduler("temporary", {
+        name: "greet",
+        data: { name: "Alice" },
+        repeat: { strategy: "interval", interval: 1000 },
+      });
+      queue.removeJobScheduler("temporary");
+
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(queue.getJobScheduler("temporary")).toBeUndefined();
+      expect(queue.getJobSchedulers()).toEqual([]);
+      expect(processor).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("should stop scheduler timers when clearing the queue", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const processor = vi.fn(async () => "done");
+      const queue = createQueue<{ name: string }>(processor);
+
+      queue.upsertJobScheduler("clear-me", {
+        name: "greet",
+        data: { name: "Alice" },
+        repeat: { strategy: "interval", interval: 1000 },
+      });
+      queue.clear();
+
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(queue.getJobSchedulers()).toEqual([]);
+      expect(processor).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("should enqueue jobs from a cron scheduler", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 0, 1, 0, 0, 0));
+
+    try {
+      const processor = vi.fn(async () => "done");
+      const queue = createQueue<{ name: string }>(processor);
+
+      const scheduler = queue.upsertJobScheduler("every-minute", {
+        name: "greet",
+        data: { name: "Alice" },
+        repeat: { strategy: "cron", cron: "* * * * *" },
+      });
+
+      expect(scheduler.nextRunAt).toEqual(new Date(2026, 0, 1, 0, 1, 0));
+
+      await vi.advanceTimersByTimeAsync(59999);
+      expect(processor).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(processor).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

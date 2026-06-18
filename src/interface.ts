@@ -30,6 +30,32 @@ export interface Job<TData = unknown> {
   attemptsMade: number;
 }
 
+export type RepeatStrategy = "cron" | "interval";
+
+export type RepeatOptions<TRepeatStrategy extends RepeatStrategy> =
+  TRepeatStrategy extends "cron"
+    ? { strategy: TRepeatStrategy; cron: string }
+    : { strategy: TRepeatStrategy; interval: number };
+
+export interface SchedulerOptions<
+  TData = unknown,
+  TRepeatStrategy extends RepeatStrategy = RepeatStrategy,
+> {
+  name: string;
+  data: TData;
+  jobOptions?: JobOptions;
+  repeat: RepeatOptions<TRepeatStrategy>;
+}
+
+export interface JobScheduler<TData = unknown> {
+  id: string;
+  name: string;
+  data: TData;
+  jobOptions?: JobOptions;
+  repeat: RepeatOptions<RepeatStrategy>;
+  nextRunAt: Date;
+}
+
 export interface QueueOptions {
   paused?: boolean;
   concurrency?: number;
@@ -57,6 +83,13 @@ export interface Queue<TData = unknown, TResult = unknown>
   pause(): void;
   resume(): void;
   isPaused(): boolean;
+  upsertJobScheduler<TRepeatStrategy extends RepeatStrategy>(
+    schedulerId: string,
+    opts: SchedulerOptions<TData, TRepeatStrategy>,
+  ): JobScheduler<TData>;
+  removeJobScheduler(schedulerId: string): void;
+  getJobScheduler(schedulerId: string): JobScheduler<TData> | undefined;
+  getJobSchedulers(): JobScheduler<TData>[];
 }
 
 export type Processor<TData = unknown, TResult = unknown> = (

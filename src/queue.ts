@@ -3,12 +3,16 @@ import {
   type Job,
   type JobOptions,
   JobRetryStrategy,
+  type JobScheduler,
   JobStatus,
   type Processor,
   type Queue,
   type QueueListener,
   type QueueOptions,
-} from "./interface";
+  type RepeatStrategy,
+  type SchedulerOptions,
+} from "./interface.js";
+import { JobSchedulerManager } from "./scheduler.js";
 
 type JobId = string;
 
@@ -32,6 +36,7 @@ class QueueImpl<TData = unknown, TResult = unknown>
   private readonly _timers: Map<JobId, NodeJS.Timeout> = new Map();
   private readonly _waitingJobs: JobId[] = [];
   private readonly _processorFn: Processor<TData, TResult>;
+  private readonly _schedulerManager: JobSchedulerManager<TData>;
 
   private _concurrency: number;
   private _lifo: boolean;
@@ -44,6 +49,24 @@ class QueueImpl<TData = unknown, TResult = unknown>
     this._concurrency = options?.concurrency ?? DEFAULT_CONCURRENCY;
     this._lifo = options?.lifo ?? false;
     this._paused = options?.paused ?? false;
+    this._schedulerManager = new JobSchedulerManager<TData>({
+      addJob: this.addJob.bind(this),
+    });
+  }
+  upsertJobScheduler<TRepeatStrategy extends RepeatStrategy>(
+    schedulerId: string,
+    opts: SchedulerOptions<TData, TRepeatStrategy>,
+  ): JobScheduler<TData> {
+    return this._schedulerManager.upsert(schedulerId, opts);
+  }
+  removeJobScheduler(schedulerId: string): void {
+    this._schedulerManager.remove(schedulerId);
+  }
+  getJobScheduler(schedulerId: string): JobScheduler<TData> | undefined {
+    return this._schedulerManager.get(schedulerId);
+  }
+  getJobSchedulers(): JobScheduler<TData>[] {
+    return this._schedulerManager.getAll();
   }
   getJobs(): Job<TData>[] {
     const jobs: Job<TData>[] = [];
@@ -81,6 +104,7 @@ class QueueImpl<TData = unknown, TResult = unknown>
     return this._activeJobCount;
   }
   clear(): void {
+    this._schedulerManager.clear();
     for (const timer of this._timers.values()) {
       clearTimeout(timer);
     }

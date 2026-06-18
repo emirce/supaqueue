@@ -1,9 +1,12 @@
 {
-  "name": "jobq",
-  "version": "1.0.0",
+  "name": "jqueue",
+  "version": "0.1.0",
   "description": "",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "pnpm run build",
     "lint": "biome lint",
     "lint:fix": "biome lint --write",
     "format": "biome format --write",
@@ -11,7 +14,22 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest"
   },
-  "keywords": [],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "background jobs",
+    "task queue",
+    "job queue",
+    "worker",
+    "scheduler"
+  ],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@11.7.0",
