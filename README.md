@@ -59,12 +59,18 @@ const queue = createQueue(processor, {
   concurrency: 4,
   paused: false,
   lifo: false,
+  defaultJobOptions: {
+    removeOnComplete: 100,
+    removeOnFail: { age: 24 * 60 * 60, count: 1000 },
+  },
 });
 ```
 
 - `concurrency`: number of jobs to process at the same time. Defaults to `1`.
 - `paused`: create the queue in a paused state. Defaults to `false`.
 - `lifo`: process newest waiting jobs first. Defaults to FIFO.
+- `defaultJobOptions`: default options applied to every job. Per-job options
+  override these defaults.
 
 ## Adding Jobs
 
@@ -103,6 +109,32 @@ queue.addJob(
 `attempts` is the number of retries after the first failed run. With fixed delay,
 each retry waits for `delay`. With exponential backoff, the delay increases after
 each failed attempt.
+
+### Auto-removing Finished Jobs
+
+By default, completed and failed jobs are kept in memory so they remain visible
+through `getJob()` and `getJobs()`. Use `removeOnComplete` and `removeOnFail` to
+remove or limit finished jobs.
+
+```ts
+queue.addJob(
+  "send-email",
+  { userId: "user_123" },
+  {
+    removeOnComplete: true,
+    removeOnFail: 1000,
+  },
+);
+```
+
+`removeOnComplete` and `removeOnFail` support:
+
+- `true`: remove the job as soon as it reaches that terminal state.
+- `false`: keep jobs in memory. This is the default.
+- `number`: keep only the newest N jobs for that terminal state.
+- `{ age }`: keep jobs newer than `age` seconds.
+- `{ count }`: keep only the newest `count` jobs.
+- `{ age, count }`: apply both limits.
 
 ## Events
 

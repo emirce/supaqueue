@@ -9,6 +9,7 @@ import {
   type Queue,
   type QueueListener,
   type QueueOptions,
+  type RemoveOnJobs,
   type RepeatStrategy,
   type SchedulerOptions,
 } from "./interface.js";
@@ -20,12 +21,19 @@ type JobInternal<TData = unknown> = Job<TData> & {
   removed?: boolean;
 };
 
+interface FinishedJobMetadata {
+  finishedAt: number;
+  finishOrder: number;
+}
+
 const DEFAULT_CONCURRENCY = 1;
 
 export const DEFAULT_JOB_OPTIONS: JobOptions = {
   delay: 0,
   attempts: 0,
   retryStrategy: JobRetryStrategy.FixedDelay,
+  removeOnComplete: false,
+  removeOnFail: false,
 };
 
 class QueueImpl<TData = unknown, TResult = unknown>
@@ -33,15 +41,19 @@ class QueueImpl<TData = unknown, TResult = unknown>
   implements Queue<TData, TResult>
 {
   private readonly _jobsMap: Map<JobId, JobInternal<TData>> = new Map();
+  private readonly _finishedJobsMeta: Map<JobId, FinishedJobMetadata> =
+    new Map();
   private readonly _timers: Map<JobId, NodeJS.Timeout> = new Map();
   private readonly _waitingJobs: JobId[] = [];
   private readonly _processorFn: Processor<TData, TResult>;
   private readonly _schedulerManager: JobSchedulerManager<TData>;
+  private readonly _defaultJobOptions: JobOptions;
 
   private _concurrency: number;
   private _lifo: boolean;
   private _paused: boolean;
   private _activeJobCount: number = 0;
+  private _finishOrder: number = 0;
 
   constructor(processorFn: Processor<TData, TResult>, options?: QueueOptions) {
     super();
@@ -49,6 +61,7 @@ class QueueImpl<TData = unknown, TResult = unknown>
     this._concurrency = options?.concurrency ?? DEFAULT_CONCURRENCY;
     this._lifo = options?.lifo ?? false;
     this._paused = options?.paused ?? false;
+    this._defaultJobOptions = options?.defaultJobOptions ?? {};
     this._schedulerManager = new JobSchedulerManager<TData>({
       addJob: this.addJob.bind(this),
     });
@@ -110,6 +123,7 @@ class QueueImpl<TData = unknown, TResult = unknown>
     }
     this._timers.clear();
     this._jobsMap.clear();
+    this._finishedJobsMeta.clear();
     this._waitingJobs.length = 0;
   }
   pause(): void {
@@ -192,8 +206,10 @@ class QueueImpl<TData = unknown, TResult = unknown>
 
   private _handleJobCompletion(job: JobInternal<TData>, result: TResult) {
     job.status = JobStatus.Completed;
+    this._markJobFinished(job);
     this._activeJobCount--;
     this.emit("completed", job, result);
+    this._applyFinishedJobRetention(job, job.options?.removeOnComplete);
     this._flushJobs();
   }
 
@@ -207,8 +223,92 @@ class QueueImpl<TData = unknown, TResult = unknown>
       return;
     }
     job.status = JobStatus.Failed;
+    this._markJobFinished(job);
     this.emit("failed", job, error);
+    this._applyFinishedJobRetention(job, job.options?.removeOnFail);
     this._flushJobs();
+  }
+
+  private _markJobFinished(job: JobInternal<TData>) {
+    this._finishedJobsMeta.set(job.id, {
+      finishedAt: Date.now(),
+      finishOrder: this._finishOrder++,
+    });
+  }
+
+  private _applyFinishedJobRetention(
+    job: JobInternal<TData>,
+    removeOnJobs: RemoveOnJobs | undefined,
+  ) {
+    if (!removeOnJobs) return;
+
+    if (removeOnJobs === true) {
+      this._removeJobFromMemory(job.id);
+      return;
+    }
+
+    const jobsWithSameStatus = this._getFinishedJobsByStatus(job.status);
+
+    if (typeof removeOnJobs === "number") {
+      this._pruneByCount(jobsWithSameStatus, removeOnJobs);
+      return;
+    }
+
+    if (removeOnJobs.age !== undefined) {
+      this._pruneByAge(jobsWithSameStatus, removeOnJobs.age);
+    }
+
+    if (removeOnJobs.count !== undefined) {
+      this._pruneByCount(
+        this._getFinishedJobsByStatus(job.status),
+        removeOnJobs.count,
+      );
+    }
+  }
+
+  private _getFinishedJobsByStatus(status: JobStatus): JobInternal<TData>[] {
+    return [...this._jobsMap.values()]
+      .filter((job) => {
+        return (
+          !job.removed &&
+          job.status === status &&
+          this._finishedJobsMeta.has(job.id)
+        );
+      })
+      .sort((a, b) => {
+        const aMetadata = this._finishedJobsMeta.get(a.id);
+        const bMetadata = this._finishedJobsMeta.get(b.id);
+        return (aMetadata?.finishOrder ?? 0) - (bMetadata?.finishOrder ?? 0);
+      });
+  }
+
+  private _pruneByAge(jobs: JobInternal<TData>[], ageInSeconds: number) {
+    const cutoff = Date.now() - ageInSeconds * 1000;
+
+    for (const job of jobs) {
+      const metadata = this._finishedJobsMeta.get(job.id);
+      if (!metadata || metadata.finishedAt > cutoff) continue;
+      this._removeJobFromMemory(job.id);
+    }
+  }
+
+  private _pruneByCount(jobs: JobInternal<TData>[], count: number) {
+    const jobsToRemove = jobs.length - Math.max(Math.floor(count), 0);
+    if (jobsToRemove <= 0) return;
+
+    for (const job of jobs.slice(0, jobsToRemove)) {
+      this._removeJobFromMemory(job.id);
+    }
+  }
+
+  private _removeJobFromMemory(jobId: JobId) {
+    const timer = this._timers.get(jobId);
+    if (timer) {
+      clearTimeout(timer);
+      this._timers.delete(jobId);
+    }
+    this._jobsMap.delete(jobId);
+    this._finishedJobsMeta.delete(jobId);
   }
 
   private _retryJob(job: JobInternal<TData>) {
@@ -264,6 +364,7 @@ class QueueImpl<TData = unknown, TResult = unknown>
       attemptsMade: 0,
       options: {
         ...DEFAULT_JOB_OPTIONS,
+        ...this._defaultJobOptions,
         ...options,
       },
     };

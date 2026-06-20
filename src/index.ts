@@ -1,2 +1,2 @@
-export { createQueue } from "./queue.js";
 export * from "./interface.js";
+export { createQueue } from "./queue.js";

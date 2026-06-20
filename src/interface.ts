@@ -13,10 +13,19 @@ export enum JobRetryStrategy {
   FixedDelay,
 }
 
+export interface KeepJobs {
+  age?: number;
+  count?: number;
+}
+
+export type RemoveOnJobs = boolean | number | KeepJobs;
+
 export interface JobOptions {
   delay?: number;
   attempts?: number;
   retryStrategy?: JobRetryStrategy;
+  removeOnComplete?: RemoveOnJobs;
+  removeOnFail?: RemoveOnJobs;
 }
 
 export interface Job<TData = unknown> {
@@ -60,6 +69,7 @@ export interface QueueOptions {
   paused?: boolean;
   concurrency?: number;
   lifo?: boolean;
+  defaultJobOptions?: JobOptions;
 }
 
 export interface QueueListener<TData, TResult> {

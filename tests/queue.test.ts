@@ -390,6 +390,223 @@ describe("Queue", () => {
     ]);
   });
 
+  it("should remove completed jobs when removeOnComplete is true", async () => {
+    const queue = createQueue(async () => "done");
+    const completed = new Promise<Job>((resolve) => {
+      queue.on("completed", resolve);
+    });
+
+    const job = queue.addJob("cleanup", {}, { removeOnComplete: true });
+    const completedJob = await completed;
+
+    expect(completedJob.id).toBe(job.id);
+    expect(completedJob.status).toBe(JobStatus.Completed);
+    expect(queue.getJob(job.id)).toBeUndefined();
+    expect(queue.getJobs()).toEqual([]);
+  });
+
+  it("should remove failed jobs when removeOnFail is true", async () => {
+    const queue = createQueue(() => {
+      throw new Error("boom");
+    });
+    const failed = new Promise<Job>((resolve) => {
+      queue.on("failed", resolve);
+    });
+
+    const job = queue.addJob("cleanup", {}, { removeOnFail: true });
+    const failedJob = await failed;
+
+    expect(failedJob.id).toBe(job.id);
+    expect(failedJob.status).toBe(JobStatus.Failed);
+    expect(queue.getJob(job.id)).toBeUndefined();
+    expect(queue.getJobs()).toEqual([]);
+  });
+
+  it("should apply removeOnComplete after retries succeed", async () => {
+    let calls = 0;
+    const queue = createQueue(() => {
+      calls++;
+      if (calls === 1) {
+        throw new Error("try again");
+      }
+      return "done";
+    });
+    const failed = vi.fn();
+    queue.on("failed", failed);
+    const completed = new Promise<Job>((resolve) => {
+      queue.on("completed", resolve);
+    });
+
+    const job = queue.addJob(
+      "retry",
+      {},
+      {
+        attempts: 1,
+        removeOnComplete: true,
+        removeOnFail: true,
+      },
+    );
+    await completed;
+
+    expect(failed).not.toHaveBeenCalled();
+    expect(queue.getJob(job.id)).toBeUndefined();
+  });
+
+  it("should apply removeOnFail after retry attempts are exhausted", async () => {
+    const processor = vi.fn(() => {
+      throw new Error("still broken");
+    });
+    const queue = createQueue(processor);
+    const failed = new Promise<Job>((resolve) => {
+      queue.on("failed", resolve);
+    });
+
+    const job = queue.addJob(
+      "retry",
+      {},
+      {
+        attempts: 2,
+        removeOnFail: true,
+      },
+    );
+    await failed;
+
+    expect(processor).toHaveBeenCalledTimes(3);
+    expect(queue.getJob(job.id)).toBeUndefined();
+  });
+
+  it("should keep the newest completed jobs when removeOnComplete is a count", async () => {
+    const completedIds: string[] = [];
+    const queue = createQueue(async () => "done");
+    const completed = new Promise<void>((resolve) => {
+      queue.on("completed", (job) => {
+        completedIds.push(job.id);
+        if (completedIds.length === 3) {
+          resolve();
+        }
+      });
+    });
+
+    queue.addJob("first", {}, { removeOnComplete: 2 });
+    queue.addJob("second", {}, { removeOnComplete: 2 });
+    queue.addJob("third", {}, { removeOnComplete: 2 });
+    await completed;
+
+    expect(queue.getJobs()).toEqual([
+      expect.objectContaining({ id: completedIds[1] }),
+      expect.objectContaining({ id: completedIds[2] }),
+    ]);
+    expect(queue.getJob(completedIds[0])).toBeUndefined();
+  });
+
+  it("should keep the newest failed jobs when removeOnFail is a count", async () => {
+    const failedIds: string[] = [];
+    const queue = createQueue(() => {
+      throw new Error("boom");
+    });
+    const failed = new Promise<void>((resolve) => {
+      queue.on("failed", (job) => {
+        failedIds.push(job.id);
+        if (failedIds.length === 3) {
+          resolve();
+        }
+      });
+    });
+
+    queue.addJob("first", {}, { removeOnFail: 2 });
+    queue.addJob("second", {}, { removeOnFail: 2 });
+    queue.addJob("third", {}, { removeOnFail: 2 });
+    await failed;
+
+    expect(queue.getJobs()).toEqual([
+      expect.objectContaining({ id: failedIds[1] }),
+      expect.objectContaining({ id: failedIds[2] }),
+    ]);
+    expect(queue.getJob(failedIds[0])).toBeUndefined();
+  });
+
+  it("should remove completed jobs older than removeOnComplete age", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 0, 1, 0, 0, 0));
+
+    try {
+      const completedIds: string[] = [];
+      const queue = createQueue(async () => "done");
+      queue.on("completed", (job) => {
+        completedIds.push(job.id);
+      });
+
+      queue.addJob("first", {}, { removeOnComplete: { age: 1 } });
+      await vi.advanceTimersByTimeAsync(500);
+      queue.addJob("second", {}, { removeOnComplete: { age: 1 } });
+      await vi.advanceTimersByTimeAsync(500);
+      queue.addJob("third", {}, { removeOnComplete: { age: 1 } });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(queue.getJob(completedIds[0])).toBeUndefined();
+      expect(queue.getJob(completedIds[1])).toBeDefined();
+      expect(queue.getJob(completedIds[2])).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("should apply queue default job retention options", async () => {
+    const queue = createQueue(async () => "done", {
+      defaultJobOptions: { removeOnComplete: true },
+    });
+    const completed = new Promise<Job>((resolve) => {
+      queue.on("completed", resolve);
+    });
+
+    const job = queue.addJob("cleanup", {});
+    await completed;
+
+    expect(queue.getJob(job.id)).toBeUndefined();
+  });
+
+  it("should allow job retention options to override queue defaults", async () => {
+    const queue = createQueue(async () => "done", {
+      defaultJobOptions: { removeOnComplete: true },
+    });
+    const completed = new Promise<Job>((resolve) => {
+      queue.on("completed", resolve);
+    });
+
+    const job = queue.addJob("keep", {}, { removeOnComplete: false });
+    await completed;
+
+    expect(queue.getJob(job.id)).toEqual(
+      expect.objectContaining({ status: JobStatus.Completed }),
+    );
+  });
+
+  it("should apply queue default job retention to scheduler-created jobs", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const queue = createQueue(async () => "done", {
+        defaultJobOptions: { removeOnComplete: true },
+      });
+      const completed = new Promise<Job>((resolve) => {
+        queue.on("completed", resolve);
+      });
+
+      queue.upsertJobScheduler("every-second", {
+        name: "cleanup",
+        data: {},
+        repeat: { strategy: "interval", interval: 1000 },
+      });
+
+      await vi.advanceTimersByTimeAsync(1000);
+      const job = await completed;
+
+      expect(queue.getJob(job.id)).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("should leave jobs waiting when concurrency is zero", async () => {
     const processor = vi.fn(async () => "done");
     const queue = createQueue(processor, { concurrency: 0 });
